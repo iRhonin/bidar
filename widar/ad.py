@@ -2,6 +2,7 @@ from bs4 import BeautifulSoup
 from dataclasses import dataclass
 from requests import get
 from telegram import InputMediaPhoto
+from telegram.ext import run_async
 
 
 class Ad:

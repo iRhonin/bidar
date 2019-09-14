@@ -5,6 +5,12 @@ from dataclasses import dataclass
 
 
 @dataclass
+class Category:
+    name: str
+    uri: str
+
+
+@dataclass
 class Range:
     name: str
     slug: str
@@ -34,17 +40,21 @@ class Range:
 
 Metrazh = partial(Range, name='متراژ', slug='01')
 Vadie = partial(Range, name='ودیعه', slug='09')
+Price = partial(Range, name='قیمت', slug='09')
 Ejare = partial(Range, name='اجاره', slug='10')
 
 
 class Query:
     base_url = 'https://divar.ir/'
 
-    def __init__(self, state, fields=[], places=[], near=False):
+    def __init__(self, state, category=None, sub_category=None, fields=[],
+                 places=[], near=False):
         self.state = state
         self.fields = fields
         self.places = places
         self.near = near
+        self.category = category
+        self.sub_category = sub_category
 
     def __str__(self):
         query = self.state.name
@@ -61,15 +71,15 @@ class Query:
     def url(self):
         url = self.base_url
         url = urljoin(url, str(self.state))
-        url = urljoin(url, self.uri)
-        url = f'{url}/?'
+        url = urljoin(url, 'browse/')
 
-        for field in self.fields:
-            if field.is_empty():
-                self.fields.remove(field)
-                continue
+        if self.category:
+            url = urljoin(url, self.category)
 
-            url = f'{url}&{field}'
+        if self.sub_category:
+            url = urljoin(url, self.sub_category)
+
+        url = f'{url}?'
 
         if self.places:
             places = ''
@@ -82,12 +92,21 @@ class Query:
                 places = f'{places},{place.code}'
             url = f'{url}&{places}'
 
+        for field in self.fields:
+            if field.is_empty():
+                self.fields.remove(field)
+                continue
+
+            url = f'{url}&{field}'
+
         return url
 
-
-class EjareMaskan(Query):
-    name = 'اجاره مسکن'
-    uri = 'browse/اجاره-مسکونی-آپارتمان-خانه-زمین/املاک-مسکن'
+    @property
+    def price(self):
+        for f in self.fields:
+            if f.name == 'قیمت':
+                return f
+        return
 
     @property
     def metrazh(self):

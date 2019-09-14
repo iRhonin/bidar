@@ -4,8 +4,9 @@ from uuid import uuid4
 from bs4 import BeautifulSoup
 from requests import get
 import telegram
+from telegram.ext import run_async
 
-from query import EjareMaskan, Metrazh
+from query import Query, Metrazh
 from state import State, Place
 from ad import Ad
 
@@ -31,6 +32,7 @@ class Watchdog:
         job = job_queue.run_repeating(self.fetch_ads, 30, name=self.job_name)
         return job
 
+    @run_async
     def send(self, ad):
         msg = self.chat.send_message(
             ad.to_message(),
@@ -45,6 +47,7 @@ class Watchdog:
             pass
 
 
+    @run_async
     def fetch_ads(self, context):
         print('fetch query')
         print('query: ', self.query.url)

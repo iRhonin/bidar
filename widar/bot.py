@@ -18,10 +18,11 @@ from difflib import get_close_matches
 
 from telegram import ReplyKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, \
-    ConversationHandler, PicklePersistence, DictPersistence
+    ConversationHandler, PicklePersistence, run_async
 
-from constants import STATES, PLACES as ALL_PLACES
-from query import EjareMaskan, Metrazh, Vadie, Ejare
+from constants import STATES, CATEGORIES, SUBCATEGORIES, \
+    PLACES as ALL_PLACES
+from query import Query, Metrazh, Vadie, Ejare, Price
 from state import Place
 from watchdog import Watchdog
 
@@ -33,8 +34,9 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 logger = logging.getLogger(__name__)
 
-STATE, DISPATCHER, DELETE, METRAZH_FROM, METRAZH_TO, VADIE_FROM, VADIE_TO, EJARE_FROM, \
-    EJARE_TO, PLACES, ATRAF, WATCHDOG = range(12)
+STATE, DISPATCHER, DELETE, METRAZH_FROM, METRAZH_TO, VADIE_FROM, VADIE_TO, \
+    EJARE_FROM, EJARE_TO, PLACES, ATRAF, WATCHDOG, CATEGORY, SUBCATEGORY, \
+    PRICE_FROM, PRICE_TO = range(16)
 
 SKIP = 'بعدی'
 YES = 'بله'
@@ -44,9 +46,19 @@ NEW_DOG_CMD = 'ساخت نگهبان جدید'
 DELETE_CMD = 'حذف'
 CANCEL = 'لغو'
 DONE = 'پایان'
+ALL = 'همه'
 
 
 DEFAULT_OPTIONS = [CANCEL, DONE, SKIP]
+
+
+def divide_chunks(l, n):
+    res = []
+    l = list(l)
+    for i in range(0, len(l), n):
+        res.append(l[i:i + n])
+
+    return res
 
 
 def find_state_by_name(name):
@@ -94,7 +106,10 @@ def dispatcher(update, context):
 
 
 def delete_msg(update, context):
-    reply_keyboard = [[CANCEL] + [str(wd) for wd in context.user_data['watchdogs']]]
+    reply_keyboard = [
+        [CANCEL],
+        *divide_chunks([str(wd) for wd in context.user_data['watchdogs']], 2),
+    ]
     update.message.reply_text(
         'یکی از نگهبان‌های زیر را انتخاب کنید',
         reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
@@ -123,12 +138,8 @@ def delete(update, context):
 def new_dog(update, context):
     reply_keyboard = [[CANCEL] +  [state.name for state in STATES]]
 
-
     update.message.reply_text(
-        'سلام!\n'
-        'من یه ربات نگهبانم و میتونم شب و روز رو دیوار نگهبانی بدم و زودتر '
-        'از همه تورو از اگهی های جدید با خبر کنم\n\n'
-        'کجا رو باید بگردم؟',
+        'کجا؟',
         reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
     )
     return STATE
@@ -140,15 +151,206 @@ def state(update, context):
         return start(update, context)
 
     state = find_state_by_name(text)
+    context.user_data['query'] = Query(state=state)
 
-    context.user_data['query'] = EjareMaskan(state=state)
-    query = context.user_data['query']
+    divided_categories = [chunk for chunk in divide_chunks(CATEGORIES.keys(), 2)]
+    reply_keyboard = [*divided_categories, [CANCEL, DONE, ALL]]
     update.message.reply_text(
-        'متراژ از؟',
+        'دسته‌بندی رو انتخاب کنید؟',
+        reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
+    )
+    return CATEGORY
+
+
+def category(update, context):
+    text = update.message.text
+
+    if text == CANCEL:
+        return start(update, context)
+    elif text == DONE:
+        return end(update, context)
+    elif text == ALL:
+        update.message.reply_text(
+            'محله‌هایی که باید نگهبانی بدم رو پشت‌سرهم'
+            'و با یک فاصله وارد کنید',
+            reply_markup=ReplyKeyboardMarkup([[CANCEL, DONE, SKIP]])
+        )
+        return PLACES
+
+    category = CATEGORIES.get(text, None)
+    if not category:
+        update.message.reply_text(
+            f'دسته‌بندی {text} وجود ندارد!'
+        )
+        return CATEGORY
+
+    context.user_data['query'].category = category
+    query = context.user_data['query']
+    print(query.url)
+
+    sub_categories = SUBCATEGORIES.get(category, None)
+    if not sub_categories:
+        update.message.reply_text(
+            'محله‌هایی که باید نگهبانی بدم رو پشت‌سرهم'
+            'و با یک فاصله وارد کنید',
+            reply_markup=ReplyKeyboardMarkup([[CANCEL, DONE, SKIP]])
+        )
+        return PLACES
+
+    divided_sub_categories = [
+        chunk for chunk in divide_chunks(sub_categories.keys(), 2)
+    ]
+    reply_keyboard = [*divided_sub_categories, [CANCEL, DONE, ALL]]
+    update.message.reply_text(
+        'دسته‌بندی دقیق‌تر؟',
+        reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
+    )
+    return SUBCATEGORY
+
+
+def sub_category(update, context):
+    text = update.message.text
+
+    if text == CANCEL:
+        return start(update, context)
+    elif text == DONE:
+        return end(update, context)
+    elif text == ALL:
+        update.message.reply_text(
+            'محله‌هایی که باید نگهبانی بدم رو پشت‌سرهم'
+            'و با یک فاصله وارد کنید',
+            reply_markup=ReplyKeyboardMarkup([[CANCEL, DONE, SKIP]])
+        )
+        return PLACES
+
+    category = context.user_data['query'].category
+    sub_category = SUBCATEGORIES[category][text]
+    context.user_data['query'].sub_category = sub_category
+    query = context.user_data['query']
+    print(query.url)
+
+    update.message.reply_text(
+        'محله‌هایی که باید نگهبانی بدم رو پشت‌سرهم'
+        'و با یک فاصله وارد کنید',
         reply_markup=ReplyKeyboardMarkup([[CANCEL, DONE, SKIP]])
     )
+    return PLACES
+
+
+def places(update, context):
+    query = context.user_data['query']
+    text = update.message.text
+
+    if text == CANCEL:
+        return start(update, context)
+    elif text == DONE:
+        return end(update, context)
+
+    elif text != SKIP:
+        input_places = text.split()
+        places = []
+        for input_place in input_places:
+            place_names = get_close_matches(input_place, ALL_PLACES.keys())
+            if len(place_names) == 0:
+                continue
+            place_name = place_names[0]
+            places.append(Place(name=place_name, code=ALL_PLACES[place_name]))
+
+        query.places = places
+
+        print(query.url)
+        update.message.reply_text(
+            'محله‌های اطراف رو هم نگهبانی بدم؟',
+            reply_markup=ReplyKeyboardMarkup([[YES, NO], [CANCEL]])
+        )
+        return ATRAF
+
+    return atraf(update, context)
+
+
+
+def atraf(update, context):
+    query = context.user_data['query']
+    text = update.message.text
+    if text == CANCEL:
+        return start(update, context)
+    elif text == DONE:
+        return end(update, context)
+    elif text != SKIP:
+        if text == YES:
+            query.near = True
+        else:
+            query.near = False
+
     print(query.url)
-    return METRAZH_FROM
+
+    if query.category == 'املاک-مسکن/':
+        update.message.reply_text(
+            'متراژ از؟',
+            reply_markup=ReplyKeyboardMarkup([[CANCEL, DONE, SKIP]])
+        )
+        return METRAZH_FROM
+
+    update.message.reply_text(
+        'قیمت از؟',
+        reply_markup=ReplyKeyboardMarkup([[CANCEL, DONE, SKIP]])
+    )
+    return PRICE_FROM
+
+
+def price_from(update, context):
+    text = update.message.text
+
+    if text == CANCEL:
+        return start(update, context)
+    elif text == DONE:
+        return end(update, context)
+
+    elif text != SKIP:
+        try:
+            from_ = int(text)
+        except ValueError:
+            update.message.reply_text(INT_FAIL)
+            return PRICE_FROM
+
+        price = Price(from_=from_)
+        context.user_data['query'].fields.append(price)
+
+    query = context.user_data['query']
+    print(query.url)
+    update.message.reply_text(
+        'قیمت تا؟',
+        reply_markup=ReplyKeyboardMarkup([[CANCEL, DONE, SKIP]])
+    )
+
+    return PRICE_TO
+
+
+def price_to(update, context):
+    query = context.user_data['query']
+    text = update.message.text
+
+    if text == CANCEL:
+        return start(update, context)
+    elif text == DONE:
+        return end(update, context)
+
+    elif text != SKIP:
+        try:
+            to = int(text)
+        except ValueError:
+            update.message.reply_text(INT_FAIL)
+            return PRICE_TO
+
+        if query.price:
+            query.price.to = to
+        else:
+            price = Price(to=to)
+            query.fields.append(price)
+
+    print(query.url)
+
+    return end(update, context)
 
 
 def metrazh_from(update, context):
@@ -202,12 +404,18 @@ def metrazh_to(update, context):
             query.fields.append(metrazh)
 
     print(query.url)
+    if query.sub_category == 'اجاره و رهن':
+        update.message.reply_text(
+            'ودیعه از؟',
+            reply_markup=ReplyKeyboardMarkup([[CANCEL, DONE, SKIP]])
+        )
+        return VADIE_FROM
+
     update.message.reply_text(
-        'ودیعه از؟',
+        'قیمت از؟',
         reply_markup=ReplyKeyboardMarkup([[CANCEL, DONE, SKIP]])
     )
-
-    return VADIE_FROM
+    return PRICE_FROM
 
 
 def vadie_from(update, context):
@@ -318,59 +526,7 @@ def ejare_to(update, context):
             query.fields.append(ejare)
 
     print(query.url)
-    update.message.reply_text(
-        'محله‌هایی که باید نگهبانی بدم رو پشت‌سرهم'
-        'و با یک فاصله وارد کنید',
-        reply_markup=ReplyKeyboardMarkup([[CANCEL, DONE, SKIP]])
-    )
 
-    return PLACES
-
-
-def places(update, context):
-    query = context.user_data['query']
-    text = update.message.text
-
-    if text == CANCEL:
-        return start(update, context)
-    elif text == DONE:
-        return end(update, context)
-
-    elif text != SKIP:
-        input_places = text.split()
-        places = []
-        for input_place in input_places:
-            place_names = get_close_matches(input_place, ALL_PLACES.keys())
-            if len(place_names) == 0:
-                continue
-            place_name = place_names[0]
-            places.append(Place(name=place_name, code=ALL_PLACES[place_name]))
-
-        query.places = places
-
-    print(query.url)
-    update.message.reply_text(
-        'محله‌های اطراف رو هم نگهبانی بدم؟',
-        reply_markup=ReplyKeyboardMarkup([[YES, NO], [CANCEL]])
-    )
-    return ATRAF
-
-
-def atraf(update, context):
-    query = context.user_data['query']
-    text = update.message.text
-    if text == CANCEL:
-        return start(update, context)
-    elif text == DONE:
-
-        return end(update, context)
-    elif text != SKIP:
-        if text == YES:
-            query.near = True
-        else:
-            query.near = False
-
-    print(query.url)
     return end(update, context)
 
 
@@ -415,7 +571,13 @@ def main():
             DISPATCHER: [MessageHandler(Filters.text, dispatcher)],
             DELETE: [MessageHandler(Filters.text, delete)],
 
+            CATEGORY: [MessageHandler(Filters.text, category)],
+            SUBCATEGORY: [MessageHandler(Filters.text, sub_category)],
+
             STATE: [MessageHandler(Filters.text, state)],
+
+            PRICE_FROM: [MessageHandler(Filters.text, price_from),],
+            PRICE_TO: [MessageHandler(Filters.text, price_to),],
 
             METRAZH_FROM: [MessageHandler(Filters.text, metrazh_from),],
             METRAZH_TO: [MessageHandler(Filters.text, metrazh_to),],
