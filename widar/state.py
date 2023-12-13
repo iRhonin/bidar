@@ -7,11 +7,10 @@ class State:
         self.slug = slug
 
     def __str__(self):
-        return f'{self.slug}/{self.name}/'
+        return f'{self.slug}/'
 
 
 @dataclass
 class Place:
     name: str
     code: str
-

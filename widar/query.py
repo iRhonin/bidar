@@ -1,7 +1,6 @@
+from dataclasses import dataclass
 from functools import partial
 from urllib.parse import urljoin
-
-from dataclasses import dataclass
 
 
 @dataclass
@@ -48,13 +47,14 @@ class Query:
     base_url = 'https://divar.ir/'
 
     def __init__(self, state, category=None, sub_category=None, fields=[],
-                 places=[], near=False):
+                 places=[], near=False, search=None):
         self.state = state
         self.fields = fields
         self.places = places
         self.near = near
         self.category = category
         self.sub_category = sub_category
+        self.search = search
 
     def __str__(self):
         query = self.state.name
@@ -70,8 +70,8 @@ class Query:
     @property
     def url(self):
         url = self.base_url
+        url = urljoin(url, 's/')
         url = urljoin(url, str(self.state))
-        url = urljoin(url, 'browse/')
 
         if self.category:
             url = urljoin(url, self.category)
@@ -98,6 +98,12 @@ class Query:
                 continue
 
             url = f'{url}&{field}'
+
+        if self.search:
+            if url.endswith('?'):
+                url = f'{url}q={self.search}'
+            else:
+                url = f'{url}&q={self.search}'
 
         return url
 

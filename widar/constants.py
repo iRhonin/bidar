@@ -1,6 +1,5 @@
-from state import State
 from query import Category
-
+from state import State
 
 STATES = [
     State('تهران', 'tehran'),
@@ -15,7 +14,7 @@ YEARS = {
 CATEGORIES = {
     'املاک': 'املاک-مسکن/',
     'وسایل نقلیه': 'وسایل-نقلیه/',
-    'لوازم الکترونیکی': 'لوازم-الکترونیکی/',
+    'لوازم الکترونیکی': 'electronic-devices',
     'مربوط به خانه': 'دکوراسیون-لوازم-خانگی/',
     'خدمات': 'خدمات',
     'وسایل شخصی': 'وسایل-شخصی',

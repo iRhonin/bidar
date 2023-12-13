@@ -14,29 +14,60 @@ bot.
 """
 
 import logging
+import os
 from difflib import get_close_matches
 
-from telegram import ReplyKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, \
-    ConversationHandler, PicklePersistence, run_async
-
-from constants import STATES, CATEGORIES, SUBCATEGORIES, \
-    PLACES as ALL_PLACES
-from query import Query, Metrazh, Vadie, Ejare, Price
+import sentry_sdk
+from constants import CATEGORIES, STATES, SUBCATEGORIES
+from constants import PLACES as ALL_PLACES
+from dotenv import load_dotenv
+from query import Ejare, Metrazh, Price, Query, Vadie
 from state import Place
+from telegram import ReplyKeyboardMarkup
+from telegram.ext import (
+    CommandHandler,
+    ConversationHandler,
+    Filters,
+    MessageHandler,
+    PicklePersistence,
+    Updater,
+)
 from watchdog import Watchdog
 
+load_dotenv()
 
-TOKEN = '840901789:AAFAutM1raBmhHcbXKbameFb078R4y61Yrg'
+sentry_sdk.init(
+    os.getenv('SENTRY_DNS')
+)
+
+TOKEN = os.getenv('TOKEN')
+
 # Enable logging
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    level=logging.INFO)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
+)
 
 logger = logging.getLogger(__name__)
 
-STATE, DISPATCHER, DELETE, METRAZH_FROM, METRAZH_TO, VADIE_FROM, VADIE_TO, \
-    EJARE_FROM, EJARE_TO, PLACES, ATRAF, WATCHDOG, CATEGORY, SUBCATEGORY, \
-    PRICE_FROM, PRICE_TO = range(16)
+(
+    STATE,
+    DISPATCHER,
+    DELETE,
+    METRAZH_FROM,
+    METRAZH_TO,
+    VADIE_FROM,
+    VADIE_TO,
+    EJARE_FROM,
+    EJARE_TO,
+    PLACES,
+    ATRAF,
+    WATCHDOG,
+    CATEGORY,
+    SUBCATEGORY,
+    PRICE_FROM,
+    PRICE_TO,
+    SEARCH,
+) = range(17)
 
 SKIP = 'بعدی'
 YES = 'بله'
@@ -136,7 +167,12 @@ def delete(update, context):
 
 
 def new_dog(update, context):
-    reply_keyboard = [[CANCEL] +  [state.name for state in STATES]]
+    text = update.message.text
+
+    if text == CANCEL:
+        return start(update, context)
+
+    reply_keyboard = [[CANCEL] + [state.name for state in STATES]]
 
     update.message.reply_text(
         'کجا؟',
@@ -147,17 +183,30 @@ def new_dog(update, context):
 
 def state(update, context):
     text = update.message.text
+
     if text == CANCEL:
         return start(update, context)
 
     state = find_state_by_name(text)
     context.user_data['query'] = Query(state=state)
 
+    update.message.reply_text(
+        'جستجوی عبارت', reply_markup=ReplyKeyboardMarkup([[CANCEL, DONE, SKIP]])
+    )
+    return SEARCH
+
+
+def search(update, context):
+    text = update.message.text
+
+    if text == CANCEL:
+        return start(update, context)
+
+    context.user_data['query'].search = text
     divided_categories = [chunk for chunk in divide_chunks(CATEGORIES.keys(), 2)]
     reply_keyboard = [*divided_categories, [CANCEL, DONE, ALL]]
     update.message.reply_text(
-        'دسته‌بندی رو انتخاب کنید؟',
-        reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
+        'دسته‌بندی', reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
     )
     return CATEGORY
 
@@ -185,9 +234,6 @@ def category(update, context):
         return CATEGORY
 
     context.user_data['query'].category = category
-    query = context.user_data['query']
-    print(query.url)
-
     sub_categories = SUBCATEGORIES.get(category, None)
     if not sub_categories:
         update.message.reply_text(
@@ -573,7 +619,7 @@ def main():
 
             CATEGORY: [MessageHandler(Filters.text, category)],
             SUBCATEGORY: [MessageHandler(Filters.text, sub_category)],
-
+            SEARCH: [MessageHandler(Filters.text, search)],
             STATE: [MessageHandler(Filters.text, state)],
 
             PRICE_FROM: [MessageHandler(Filters.text, price_from),],
